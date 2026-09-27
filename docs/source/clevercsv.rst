@@ -132,6 +132,14 @@ clevercsv.read module
    :show-inheritance:
    :undoc-members:
 
+clevercsv.roundtrip module
+--------------------------
+
+.. automodule:: clevercsv.roundtrip
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 clevercsv.utils module
 ----------------------
 

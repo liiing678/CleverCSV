@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+* Compare candidate dialects by their consistency score and expose the
+  scores on the ``scores_`` attribute of the detector for inspection
+* Emit a ``DialectDetectionWarning`` and return no dialect when detection is
+  inconclusive (tied scores that cannot be broken) instead of silently
+  picking a candidate
+* Verify detected dialects with a round-trip check: the parsing result must
+  be reproduced when writing it back and parsing it again with the same
+  dialect
+
 ## Version 0.8.5
 
 * Fix reference counting bug in C extension 

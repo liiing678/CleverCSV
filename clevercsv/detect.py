@@ -10,16 +10,22 @@ Author: Gertjan van den Burg
 from enum import Enum
 from io import StringIO
 
+import warnings
+
 from typing import Dict
 from typing import Iterable
 from typing import Optional
 from typing import Union
 
 from .consistency import ConsistencyDetector
+from .consistency import ConsistencyScore
+from .cparser_util import field_size_limit
 from .dialect import SimpleDialect
+from .exceptions import DialectDetectionWarning
 from .exceptions import NoDetectionResult
 from .normal_form import detect_dialect_normal
 from .read import reader
+from .roundtrip import verify_roundtrip
 
 
 class DetectionMethod(str, Enum):
@@ -50,7 +56,17 @@ class Detector:
     implementation and avoid naming issues. You can import it as ``from ccsv
     import Sniffer`` nonetheless.
 
+    Attributes
+    ----------
+    scores_ : Optional[Dict[SimpleDialect, ConsistencyScore]]
+        The consistency scores of the candidate dialects if the consistency
+        measure was used during the last call to :meth:`detect`, and None
+        otherwise. This allows inspecting why a dialect was selected.
+
     """
+
+    def __init__(self) -> None:
+        self.scores_: Optional[Dict[SimpleDialect, ConsistencyScore]] = None
 
     def sniff(
         self,
@@ -106,10 +122,20 @@ class Detector:
             The detected dialect. Can be `None` if dialect detection was
             inconclusive.
 
+        Notes
+        -----
+        A dialect is only returned if the parsing result passes round-trip
+        verification: writing the parsed rows back with the same dialect and
+        parsing the result again must reproduce the same rows. If no
+        candidate dialect is a clear winner or no candidate passes
+        verification, a :class:`DialectDetectionWarning` is emitted and None
+        is returned instead of an arbitrary dialect.
+
         """
         method = DetectionMethod(method) if isinstance(method, str) else method
         if delimiters is not None:
             delimiters = list(delimiters)
+        self.scores_ = None
         if method == DetectionMethod.NORMAL or method == DetectionMethod.AUTO:
             if verbose:
                 print("Running normal form detection ...", flush=True)
@@ -117,14 +143,40 @@ class Detector:
                 sample, delimiters=delimiters, verbose=verbose
             )
             if dialect is not None:
-                self.method_ = DetectionMethod.NORMAL
-                return dialect
+                if self._verify_dialect(sample, dialect):
+                    self.method_ = DetectionMethod.NORMAL
+                    return dialect
+                if verbose:
+                    print(
+                        "Normal form dialect failed round-trip verification.",
+                        flush=True,
+                    )
+                if method == DetectionMethod.NORMAL:
+                    warnings.warn(
+                        "Dialect detection with the normal forms gave a "
+                        "dialect that did not pass round-trip verification "
+                        "and was rejected.",
+                        DialectDetectionWarning,
+                        stacklevel=2,
+                    )
+                    return None
 
         self.method_ = DetectionMethod.CONSISTENCY
         consistency_detector = ConsistencyDetector(skip=skip, verbose=verbose)
         if verbose:
             print("Running data consistency measure ...", flush=True)
-        return consistency_detector.detect(sample, delimiters=delimiters)
+        dialect = consistency_detector.detect(sample, delimiters=delimiters)
+        self.scores_ = consistency_detector.scores_
+        return dialect
+
+    @staticmethod
+    def _verify_dialect(sample: str, dialect: SimpleDialect) -> bool:
+        """Check that a dialect passes round-trip verification on a sample"""
+        old_limit = field_size_limit(len(sample) + 1)
+        try:
+            return verify_roundtrip(sample, dialect)
+        finally:
+            field_size_limit(old_limit)
 
     def has_header(self, sample: str, max_rows_to_check: int = 20) -> bool:
         """Detect if a file has a header from a sample.

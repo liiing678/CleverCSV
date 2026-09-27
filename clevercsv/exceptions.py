@@ -16,3 +16,7 @@ class Error(ParserError):
 
 class NoDetectionResult(Exception):
     pass
+
+
+class DialectDetectionWarning(UserWarning):
+    """Warning emitted when dialect detection has no clear winner"""
